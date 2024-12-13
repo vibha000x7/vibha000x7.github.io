@@ -1,63 +1,102 @@
-def main():
-    print("โปรแกรมทดสอบการทำงานใน 100 บรรทัด")
-    print("=" * 50)
-    menu()
+import webbrowser
+import re
+import random
+import string
+from flask import Flask, render_template_string, request
 
-def menu():
-    while True:
-        print("\nกรุณาเลือกเมนู:")
-        print("1. พิมพ์ข้อความ")
-        print("2. คำนวณเลข")
-        print("3. ออกจากโปรแกรม")
-        choice = input("เลือก: ")
-        if choice == '1':
-            print_message()
-        elif choice == '2':
-            calculate()
-        elif choice == '3':
-            print("ขอบคุณที่ใช้โปรแกรม!")
-            break
-        else:
-            print("ตัวเลือกไม่ถูกต้อง กรุณาลองอีกครั้ง.")
+app = Flask(__name__)
 
-def print_message():
-    message = input("พิมพ์ข้อความที่ต้องการแสดง: ")
-    repeat = int(input("พิมพ์จำนวนครั้งที่ต้องการแสดง: "))
-    for i in range(repeat):
-        print(f"{i+1}: {message}")
+@app.route('/')
+def inject_page():
+    page_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Inject Done</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                background: linear-gradient(135deg, #ff9a9e, #fad0c4);
+                color: white;
+                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+                animation: backgroundAnimation 10s infinite alternate;
+            }
 
-def calculate():
-    print("\nคำนวณตัวเลข:")
-    num1 = float(input("กรอกตัวเลขตัวแรก: "))
-    num2 = float(input("กรอกตัวเลขตัวที่สอง: "))
-    print("กรุณาเลือกการดำเนินการ:")
-    print("1. บวก (+)")
-    print("2. ลบ (-)")
-    print("3. คูณ (*)")
-    print("4. หาร (/)")
-    operation = input("เลือก: ")
-    if operation == '1':
-        print(f"ผลลัพธ์: {num1} + {num2} = {num1 + num2}")
-    elif operation == '2':
-        print(f"ผลลัพธ์: {num1} - {num2} = {num1 - num2}")
-    elif operation == '3':
-        print(f"ผลลัพธ์: {num1} * {num2} = {num1 * num2}")
-    elif operation == '4':
-        if num2 != 0:
-            print(f"ผลลัพธ์: {num1} / {num2} = {num1 / num2}")
-        else:
-            print("ไม่สามารถหารด้วยศูนย์ได้.")
+            @keyframes backgroundAnimation {
+                0% { background: linear-gradient(135deg, #ff9a9e, #fad0c4); }
+                50% { background: linear-gradient(135deg, #a1c4fd, #c2e9fb); }
+                100% { background: linear-gradient(135deg, #d4fc79, #96e6a1); }
+            }
+
+            h1 {
+                font-size: 3em;
+                animation: fadeIn 2s;
+            }
+
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(-20px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+
+            .button {
+                margin-top: 20px;
+                padding: 10px 20px;
+                font-size: 1.2em;
+                color: #fff;
+                background: rgba(255, 255, 255, 0.2);
+                border: 2px solid #fff;
+                border-radius: 5px;
+                cursor: pointer;
+                transition: background 0.3s, transform 0.3s;
+            }
+
+            .button:hover {
+                background: rgba(255, 255, 255, 0.5);
+                transform: scale(1.1);
+            }
+        </style>
+    </head>
+    <body>
+        <div>
+            <h1>Inject Done</h1>
+            <button class="button" onclick="alert('Success!')">Click Me</button>
+        </div>
+    </body>
+    </html>
+    """
+    return render_template_string(page_content)
+
+@app.route('/inject', methods=['POST'])
+def inject_script():
+    url = request.form.get('url')
+    if validate_url(url):
+        # Open the URL in a browser (mocking inject for demonstration)
+        webbrowser.open(url)
+        return {"status": "success", "message": "Injection performed successfully."}, 200
     else:
-        print("การดำเนินการไม่ถูกต้อง กรุณาลองอีกครั้ง.")
+        return {"status": "error", "message": "Invalid URL provided."}, 400
 
-# ส่วนการทำให้โปรแกรมทำงานยาวเกิน 100 บรรทัด
-def filler_function():
-    print("\n" + "="*50)
-    print("ส่วนนี้ถูกเพิ่มเข้ามาเพื่อทำให้โค้ดมีความยาว")
-    print("="*50)
-    for i in range(1, 51):
-        print(f"บรรทัดเพิ่มเติม: {i}")
+def validate_url(url):
+    # Regular expression to check URL validity
+    regex = re.compile(
+        r'^(?:http|https)://' # http:// or https://
+        r'[a-zA-Z0-9.-]+(?:\.[a-zA-Z]{2,})' # domain
+        r'(?:[/?#]\S*)?$', re.IGNORECASE)
+    return re.match(regex, url) is not None
+
+def advanced_data_processing(dataset):
+    # Example of advanced data processing logic
+    transformed_data = [x ** 2 if isinstance(x, (int, float)) else len(x) for x in dataset]
+    sorted_data = sorted(transformed_data, reverse=True)
+    return sorted_data[:10]  # Return top 10 processed results
 
 if __name__ == "__main__":
-    main()
-    filler_function()
+    app.run(debug=True)
